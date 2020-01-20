@@ -71,7 +71,7 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
-        self.ThumbnailView.setText(_translate("MainWindow", "Welcome to RipTide, please enter a valid Youtube URL"))
+        self.ThumbnailView.setText(_translate("MainWindow", "Welcome to Qtube, please enter a valid YouTube URL"))
         self.HighestQual.setText(_translate("MainWindow", "Highest Quality"))
         self.AudioOnly.setText(_translate("MainWindow", "Audio Only"))
         self.menuSettings.setTitle(_translate("MainWindow", "Settings"))
