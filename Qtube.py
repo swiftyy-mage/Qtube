@@ -57,7 +57,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 		super(QMainWindow, self).__init__(*args, **kwargs)
 		
 		self.setupUi(self)
-		self.setWindowTitle('RipTide')
+		self.setWindowTitle('Qtube')
 
 		self.StackedLayout1 = QStackedLayout(self.StackedMulti1)
 		self.StackedLayout1.setObjectName('StackedLayout1')
