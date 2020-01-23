@@ -163,7 +163,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 				self.vid_stream = self.vid.streams.filter(custom_filter_functions=[lambda s: s.includes_video_track]).order_by('resolution').desc().first()
 				print(self.vid_stream)
 				if self.vid_stream.is_progressive:
-					fullpath, _ = QFileDialog.getSaveFileName(self, "Save file", "{}".format(helpers.safe_filename(self.vid.title)), "All files (*.*)")
+					fullpath, _ = QFileDialog.getSaveFileName(self, "Save file", helpers.safe_filename(self.vid.title), "{} (*.{});;All files (*.*)".format(self.suffix_description(self.vid_stream.subtype), self.vid_stream.subtype))
 					if not fullpath:
 						return
 					self.fullpath = pathlib.Path(fullpath)
@@ -183,7 +183,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
 					self.aud_stream = self.vid.streams.filter(only_audio=True, subtype=self.vid_stream.subtype).first()
 					
-					fullpath, _ = QFileDialog.getSaveFileName(self, "Save file", "{}".format(helpers.safe_filename(self.vid.title)), "All files (*.*)")
+					fullpath, _ = QFileDialog.getSaveFileName(self, "Save file", helpers.safe_filename(self.vid.title), "{} (*.{});;All files (*.*)".format(self.suffix_description(self.aud_stream.subtype), self.aud_stream.subtype))
 					if not fullpath:
 						return
 					self.fullpath = pathlib.Path(fullpath)
@@ -208,11 +208,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 			elif self.HighestQual.isChecked() and self.AudioOnly.isChecked():
 				self.aud_stream = self.vid.streams.filter(only_audio=True).order_by('abr').desc().first()
 
-				fullpath, _ = QFileDialog.getSaveFileName(self, "Save file", "{}".format(helpers.safe_filename(self.vid.title)), "All files (*.*)")
+				fullpath, _ = QFileDialog.getSaveFileName(self, "Save file", helpers.safe_filename(self.vid.title), "{} (*.{});;All files (*.*)".format(self.suffix_description(self.aud_stream.subtype), self.aud_stream.subtype))
 				if not fullpath:
 					return
 				self.fullpath = pathlib.Path(fullpath)
-				parent, name = self.fullpath.parent, self.fullpath.name
+				parent, name = self.fullpath.parent, self.fullpath.stem
 
 				self.StackedLayout1.setCurrentIndex(1)
 				self.DisplayStatus.setText('Downloading Audio')
@@ -229,21 +229,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 				
 				self.vid_stream = self.vid.streams.all()[self.SelectStream.currentIndex()]
 
-				fullpath, _ = QFileDialog.getSaveFileName(self, "Save file", "{}".format(helpers.safe_filename(self.vid.title)), "All files (*.*)")
+				fullpath, _ = QFileDialog.getSaveFileName(self, "Save file", helpers.safe_filename(self.vid.title), "{} (*.{});;All files (*.*)".format(self.suffix_description(self.vid_stream.subtype), self.vid_stream.subtype))
 				if not fullpath:
 					return
 				self.fullpath = pathlib.Path(fullpath)
-				parent, name = self.fullpath.parent, self.fullpath.name
+				parent, name = self.fullpath.parent, self.fullpath.stem
 
 				self.StackedLayout1.setCurrentIndex(1)
 				self.DisplayStatus.setText('Downloading')
 				self.StackedLayout2.setCurrentIndex(2)
 
-				self.vid_stream.download(output_path=parent, filename='{}'.format(name))
+				self.vid_stream.download(output_path=parent, filename=name)
 
 				self.StackedLayout1.setCurrentIndex(0)
 				self.DisplayStatus.setText('')
 				self.StackedLayout2.setCurrentIndex(1)
+
+	def suffix_description(self, suffix):
+		if suffix == 'mp4':
+			return 'MP4 File'
+		return 'WebM File'
 				
 
 app = QApplication(sys.argv)
