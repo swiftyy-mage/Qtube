@@ -1,6 +1,5 @@
-#For this app to work fully, it is best to use the Qtube branch of my fork of pytube
 import sys, urllib, os, pathlib, subprocess
-from QtubeUI import Ui_MainWindow
+from Qtube_UI import Ui_MainWindow
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -13,51 +12,92 @@ def on_progress(stream, chunk, file_handle, bytes_remaining):
 	win.Prog.bytes_received = bytes_received
 	win.Prog._trigger_refresh()
 
+def on_complete(stream, file_handle):
+	if stream.is_progressive or stream.includes_audio_track or (not win.adapt):
+		win.on_complete_signal.emit()
+	win.Prog.bytes_received = 0
+
+class Worker_1(QRunnable):
+	@pyqtSlot()
+	def run(self):
+		win.on_begin_AV_signal.emit()
+		win.vid_stream.download(output_path=win.fullpath.parent, filename='{}'.format(win.fullpath.stem))
+
+class Worker_2(QRunnable):
+	@pyqtSlot()
+	def run(self):
+		win.on_begin_V_signal.emit()
+		win.vid_stream.download(output_path=win.fullpath.parent, filename='{}'.format(win.unique_path_video(win.fullpath.parent, win.fullpath.stem)))
+
+		win.on_begin_A_signal.emit()
+		win.aud_stream.download(output_path=win.fullpath.parent, filename='{}'.format(win.unique_path_audio(win.fullpath.parent, win.fullpath.stem)))
+
+		subprocess.run(['ffmpeg', '-i', '{}'.format(win.video_path), '-i', '{}'.format(win.audio_path), '-codec', 'copy', '{}'.format(win.fullpath)])
+		win.video_path.unlink()
+		win.audio_path.unlink()
+		win.adapt = False
+
+class Worker_3(QRunnable):
+	@pyqtSlot()
+	def run(self):
+		win.on_begin_A_signal.emit()
+		win.aud_stream.download(output_path=win.fullpath.parent, filename='{}'.format(win.fullpath.stem))
+
+
 class ProgressBar(QWidget):
 	def __init__(self, *args, **kwargs):
 		super(ProgressBar, self).__init__(*args, **kwargs)
 
 	def paintEvent(self, e):
-		painter = QPainter(self)
+		if getattr(self, "bytes_received", None) is not None:
+			painter = QPainter(self)
 
-		brush = QBrush()
-		brush.setColor(QColor('white'))
-		brush.setStyle(Qt.SolidPattern)
-		rect = QRect(0, 0, painter.device().width(), painter.device().height())
-		painter.fillRect(rect, brush)
-
-		padding = 2
-
-		d_height = painter.device().height() - (padding * 2)
-		d_width = painter.device().width() - (padding* 2)
-
-		step_size = d_width / 15
-
-		bar_width = step_size * 0.8
-		bar_spacer = step_size * 0.1
-
-		pc = self.bytes_received / self.filesize
-		n_steps_to_draw = int(pc * 15)
-
-		brush.setColor(QColor('green'))
-
-		for n in range(n_steps_to_draw + 1):
-			rect = QRect(
-				padding + (n * step_size) + bar_spacer,
-				padding,
-				bar_width,
-				d_height)
+			brush = QBrush()
+			brush.setColor(QColor('white'))
+			brush.setStyle(Qt.SolidPattern)
+			rect = QRect(0, 0, painter.device().width(), painter.device().height())
 			painter.fillRect(rect, brush)
+
+			padding = 2
+
+			d_height = painter.device().height() - (padding * 2)
+			d_width = painter.device().width() - (padding* 2)
+
+			step_size = d_width / 15
+
+			bar_width = step_size * 0.8
+			bar_spacer = step_size * 0.1
+
+			pc = self.bytes_received / self.filesize
+			n_steps_to_draw = int(pc * 15)
+
+			brush.setColor(QColor('green'))
+
+			for n in range(n_steps_to_draw + 1):
+				rect = QRect(
+					padding + (n * step_size) + bar_spacer,
+					padding,
+					bar_width,
+					d_height)
+				painter.fillRect(rect, brush)
 
 	def _trigger_refresh(self):
 		self.repaint()
 
 class MainWindow(QMainWindow, Ui_MainWindow):
+	on_complete_signal = pyqtSignal()
+
+	on_begin_AV_signal = pyqtSignal()
+	on_begin_V_signal = pyqtSignal()
+	on_begin_A_signal = pyqtSignal()
+
 	def __init__(self, *args, **kwargs):
 		super(QMainWindow, self).__init__(*args, **kwargs)
 		
 		self.setupUi(self)
 		self.setWindowTitle('Qtube')
+
+		self.threadpool = QThreadPool()
 
 		self.StackedLayout1 = QStackedLayout(self.StackedMulti1)
 		self.StackedLayout1.setObjectName('StackedLayout1')
@@ -96,8 +136,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 		self.DlButton2.pressed.connect(self.on_DL_pressed)
 		self.StackedLayout2.setCurrentIndex(0)
 		self.HighestQual.stateChanged.connect(self.on_hq_select)
+		self.on_begin_AV_signal.connect(self.on_begin_AV_slot)
+		self.on_begin_V_signal.connect(self.on_begin_V_slot)
+		self.on_begin_A_signal.connect(self.on_begin_A_slot)		
+		self.on_complete_signal.connect(self.on_complete_slot)
 
 		self.can_dl = False
+		self.adapt = False
 
 	def populate_stream_select(self):
 		for stream in self.vid.streams.all():
@@ -122,7 +167,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 			self.audio_name = '{}_{}_{}'.format(name_pattern, 'audio', str(counter))
 			self.audio_path = directory / '{}.{}'.format(self.audio_name, self.vid_stream.subtype)
 			if not self.audio_path.exists():
-				print(self.audio_path)
 				return self.audio_name
 			counter += 1
 
@@ -132,13 +176,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 			self.video_name = '{}_{}_{}'.format(name_pattern, 'video', str(counter))
 			self.video_path = directory / '{}.{}'.format(self.video_name, self.vid_stream.subtype)
 			if not self.video_path.exists():
-				print(self.video_path)
 				return self.video_name
 			counter += 1
 
 	def on_url_enter(self, s):
 		try:
-			self.vid = YouTube(s, on_progress_callback = on_progress)
+			self.vid = YouTube(s, on_progress_callback = on_progress, on_complete_callback = on_complete)
 						
 			request = urllib.request.urlopen(self.vid.thumbnail_url).read()
 			b4_resize = QPixmap()
@@ -155,31 +198,41 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 			self.SelectStream.clear()
 			self.can_dl = False
 
+	def on_begin_AV_slot(self):
+		self.StackedLayout1.setCurrentIndex(1)
+		self.DisplayStatus.setText('Downloading Video/Audio')
+		self.StackedLayout2.setCurrentIndex(2)
 
+	def on_begin_A_slot(self):
+		self.StackedLayout1.setCurrentIndex(1)
+		self.DisplayStatus.setText('Downloading Audio')
+		self.StackedLayout2.setCurrentIndex(2)
+
+	def on_begin_V_slot(self):
+		self.StackedLayout1.setCurrentIndex(1)
+		self.DisplayStatus.setText('Downloading Video')
+		self.StackedLayout2.setCurrentIndex(2)
+
+	def on_complete_slot(self):
+		self.StackedLayout1.setCurrentIndex(0)
+		self.DisplayStatus.setText('')
+		self.StackedLayout2.setCurrentIndex(0)
 
 	def on_DL_pressed(self):
 		if self.can_dl:
 			if self.HighestQual.isChecked() and not self.AudioOnly.isChecked():
 				self.vid_stream = self.vid.streams.filter(custom_filter_functions=[lambda s: s.includes_video_track]).order_by('resolution').desc().first()
-				print(self.vid_stream)
 				if self.vid_stream.is_progressive:
 					fullpath, _ = QFileDialog.getSaveFileName(self, "Save file", helpers.safe_filename(self.vid.title), "{} (*.{});;All files (*.*)".format(self.suffix_description(self.vid_stream.subtype), self.vid_stream.subtype))
 					if not fullpath:
 						return
 					self.fullpath = pathlib.Path(fullpath)
-					parent, name = self.fullpath.parent, self.fullpath.name
 
-					self.StackedLayout1.setCurrentIndex(1)
-					self.DisplayStatus.setText('Downloading Video/Audio')
-					self.StackedLayout2.setCurrentIndex(2)
-
-					self.vid_stream.download(output_path=parent, filename='{}'.format(name))
-
-					self.StackedLayout1.setCurrentIndex(0)
-					self.DisplayStatus.setText('')
-					self.StackedLayout2.setCurrentIndex(0)
+					worker = Worker_1()
+					self.threadpool.start(worker)
 
 				else:
+					self.adapt = True
 
 					self.aud_stream = self.vid.streams.filter(only_audio=True, subtype=self.vid_stream.subtype).first()
 					
@@ -187,23 +240,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 					if not fullpath:
 						return
 					self.fullpath = pathlib.Path(fullpath)
-					parent, name = self.fullpath.parent, self.fullpath.name
 
-					self.StackedLayout1.setCurrentIndex(1)
-					self.DisplayStatus.setText('Downloading Video')
-					self.StackedLayout2.setCurrentIndex(2)
-
-					self.vid_stream.download(output_path=parent, filename='{}'.format(self.unique_path_video(parent, name)))
-					self.DisplayStatus.setText('Downloading Audio')
-					self.aud_stream.download(output_path=parent, filename='{}'.format(self.unique_path_audio(parent, name)))
-					self.DisplayStatus.setText('Combining Audio and Video')
-					subprocess.run(['ffmpeg', '-i', '{}'.format(self.video_path), '-i', '{}'.format(self.audio_path), '-codec', 'copy', '{}.{}'.format(self.fullpath, self.vid_stream.subtype)])
-					self.video_path.unlink()
-					self.audio_path.unlink()
-
-					self.StackedLayout1.setCurrentIndex(0)
-					self.DisplayStatus.setText('')
-					self.StackedLayout2.setCurrentIndex(0)
+					worker = Worker_2()
+					self.threadpool.start(worker)
 
 			elif self.HighestQual.isChecked() and self.AudioOnly.isChecked():
 				self.aud_stream = self.vid.streams.filter(only_audio=True).order_by('abr').desc().first()
@@ -212,17 +251,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 				if not fullpath:
 					return
 				self.fullpath = pathlib.Path(fullpath)
-				parent, name = self.fullpath.parent, self.fullpath.stem
 
-				self.StackedLayout1.setCurrentIndex(1)
-				self.DisplayStatus.setText('Downloading Audio')
-				self.StackedLayout2.setCurrentIndex(2)
-
-				self.aud_stream.download(output_path=parent, filename='{}'.format(name))
-
-				self.StackedLayout1.setCurrentIndex(0)
-				self.DisplayStatus.setText('')
-				self.StackedLayout2.setCurrentIndex(0)
+				worker = Worker_3()
+				self.threadpool.start(worker)
 
 			else:
 				print(self.SelectStream.currentIndex)
@@ -233,17 +264,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 				if not fullpath:
 					return
 				self.fullpath = pathlib.Path(fullpath)
-				parent, name = self.fullpath.parent, self.fullpath.stem
 
-				self.StackedLayout1.setCurrentIndex(1)
-				self.DisplayStatus.setText('Downloading')
-				self.StackedLayout2.setCurrentIndex(2)
-
-				self.vid_stream.download(output_path=parent, filename=name)
-
-				self.StackedLayout1.setCurrentIndex(0)
-				self.DisplayStatus.setText('')
-				self.StackedLayout2.setCurrentIndex(1)
+				worker = Worker_1()
+				self.threadpool.start(worker)
 
 	def suffix_description(self, suffix):
 		if suffix == 'mp4':
